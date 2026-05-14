@@ -11,7 +11,7 @@
 #pragma comment(lib, "setupapi.lib")
 
 struct Mapeo {
-    int botones[10];
+    int botones[10]; // A, B, X, Y, LB, RB, Start, Back, L3, R3
 };
 
 struct ControllerPair {
@@ -45,80 +45,66 @@ void cargarConfig() {
     archivo.close();
 }
 
-void calibrarMando(SDL_Joystick* joy, std::string guid) {
-    Mapeo nuevo;
-    std::cout << "\n>>> CALIBRANDO: " << SDL_JoystickName(joy) << std::endl;
-    for (int i = 0; i < (int)nombresBotones.size(); i++) {
-        std::cout << "Presiona [" << nombresBotones[i] << "]: " << std::flush;
-        bool capturado = false;
-        while (!capturado) {
-            SDL_Event ev;
-            while (SDL_PollEvent(&ev)) {
-                if (ev.type == SDL_JOYBUTTONDOWN) {
-                    nuevo.botones[i] = ev.jbutton.button;
-                    std::cout << "OK (" << (int)ev.jbutton.button << ")" << std::endl;
-                    capturado = true;
-                    Sleep(350);
-                }
-            }
-            Sleep(10);
-        }
-    }
-    baseDeDatos[guid] = nuevo;
-    guardarConfig();
-}
-
 int main(int argc, char* argv[]) {
     SDL_SetMainReady();
-    // Volvemos a la inicializacion simple de la V2
-    SDL_Init(SDL_INIT_JOYSTICK);
+    if (SDL_Init(SDL_INIT_JOYSTICK) < 0) return 1;
     
     PVIGEM_CLIENT client = vigem_alloc();
-    vigem_connect(client);
-
-    cargarConfig();
-    
-    // "Despertador" para mandos Twin USB
-    SDL_JoystickUpdate();
-    int nJoy = SDL_NumJoysticks();
-
-    if (nJoy == 0) {
-        std::cout << "ERROR: No veo mandos. REINTENTANDO..." << std::endl;
-        Sleep(1000);
-        SDL_JoystickUpdate();
-        nJoy = SDL_NumJoysticks();
+    if (!VIGEM_SUCCESS(vigem_connect(client))) {
+        std::cout << "Error: No se encontro ViGEmBus instalado." << std::endl;
+        system("pause");
+        return 1;
     }
 
+    cargarConfig();
+    SDL_JoystickUpdate();
+    
+    int nJoy = SDL_NumJoysticks();
     if (nJoy == 0) {
-        std::cout << "No se detectaron mandos. Presiona ANALOG en el control." << std::endl;
+        std::cout << "No hay mandos. Revisa el cable y el boton ANALOG." << std::endl;
         system("pause");
         return 0;
     }
 
-    std::cout << "=== MANDOS ENCONTRADOS: " << nJoy << " ===" << std::endl;
     std::vector<ControllerPair> activos;
-    
+    std::cout << "=== MANDOS DETECTADOS: " << nJoy << " ===" << std::endl;
+
     for (int i = 0; i < nJoy; i++) {
         SDL_Joystick* j = SDL_JoystickOpen(i);
         char guidStr[33];
         SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j), guidStr, 33);
         
-        std::cout << "[" << i + 1 << "] " << SDL_JoystickName(j);
-        if (baseDeDatos.count(guidStr)) std::cout << " (Listo)";
-        else std::cout << " (Nuevo)";
-        std::cout << std::endl;
-
-        // Si es nuevo o queremos reconfigurar, lanzamos calibracion
-        if (!baseDeDatos.count(guidStr)) {
-            calibrarMando(j, guidStr);
+        // Si el mando es nuevo, pedimos botones de una vez
+        if (baseDeDatos.find(guidStr) == baseDeDatos.end()) {
+            std::cout << "\n>>> CONFIGURANDO MANDO NUEVO: " << SDL_JoystickName(j) << std::endl;
+            Mapeo nuevo;
+            for (int b = 0; b < 10; b++) {
+                std::cout << "Presiona [" << nombresBotones[b] << "]: " << std::flush;
+                bool capturado = false;
+                while (!capturado) {
+                    SDL_Event ev;
+                    while (SDL_PollEvent(&ev)) {
+                        if (ev.type == SDL_JOYBUTTONDOWN && ev.jbutton.which == SDL_JoystickInstanceID(j)) {
+                            nuevo.botones[b] = (int)ev.jbutton.button;
+                            std::cout << "OK (" << (int)ev.jbutton.button << ")" << std::endl;
+                            capturado = true;
+                            Sleep(350);
+                        }
+                    }
+                    Sleep(1);
+                }
+            }
+            baseDeDatos[guidStr] = nuevo;
+            guardarConfig();
         }
 
         PVIGEM_TARGET vPad = vigem_target_x360_alloc();
         vigem_target_add(client, vPad);
         activos.push_back({j, vPad, guidStr});
+        std::cout << "[LISTO] Mando " << i + 1 << " emulando como Xbox." << std::endl;
     }
 
-    std::cout << "\nEMULACION ACTIVA. Pulsa Ctrl+C para cerrar.\n" << std::endl;
+    std::cout << "\nEJECUTANDO... No cierres esta ventana.\n" << std::endl;
 
     while (true) {
         SDL_JoystickUpdate();
@@ -127,7 +113,7 @@ int main(int argc, char* argv[]) {
             XUSB_REPORT_INIT(&report);
             Mapeo m = baseDeDatos[a.guid];
 
-            // Botones
+            // Mapeo de botones grabados
             if (SDL_JoystickGetButton(a.physical, m.botones[0])) report.wButtons |= XUSB_GAMEPAD_A;
             if (SDL_JoystickGetButton(a.physical, m.botones[1])) report.wButtons |= XUSB_GAMEPAD_B;
             if (SDL_JoystickGetButton(a.physical, m.botones[2])) report.wButtons |= XUSB_GAMEPAD_X;
@@ -139,13 +125,13 @@ int main(int argc, char* argv[]) {
             if (SDL_JoystickGetButton(a.physical, m.botones[8])) report.wButtons |= XUSB_GAMEPAD_LEFT_THUMB;
             if (SDL_JoystickGetButton(a.physical, m.botones[9])) report.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB;
 
-            // Ejes (Standard)
+            // Ejes (Standard Twin USB)
             report.sThumbLX = SDL_JoystickGetAxis(a.physical, 0);
             report.sThumbLY = -SDL_JoystickGetAxis(a.physical, 1);
             report.sThumbRX = SDL_JoystickGetAxis(a.physical, 2);
             report.sThumbRY = -SDL_JoystickGetAxis(a.physical, 3);
 
-            // Gatillos (L2/R2 suelen ser botones 6 y 7)
+            // Gatillos L2/R2 como botones (Por si el juego los pide)
             if (SDL_JoystickGetButton(a.physical, 6)) report.bLeftTrigger = 255;
             if (SDL_JoystickGetButton(a.physical, 7)) report.bRightTrigger = 255;
 
