@@ -1,4 +1,28 @@
-- name: Compilar Proyecto
-      run: |
-        cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
-        cmake --build build --config Release
+name: Generar EXE Portable
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Descargar tu codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar SDL2
+        run: vcpkg install sdl2:x64-windows
+
+      - name: Obtener libreria ViGEm
+        run: |
+          git clone https://github.com/ViGEm/ViGEmClient.git external/ViGEmClient
+
+      - name: Compilar Proyecto
+        run: |
+          cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release
+
+      - name: Entregar el EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mi-Emulador-Final
+          path: build/Release/XInputEmu.exe
