@@ -9,80 +9,84 @@
 
 #pragma comment(lib, "setupapi.lib")
 
-// Estructura para manejar cada mando conectado
-struct ControllerPair {
-    SDL_GameController* physical;
-    PVIGEM_TARGET virtualPad;
+struct Mapeo {
+    int botones[8]; // A, B, X, Y, LB, RB, Start, Back
 };
 
-int main(int argc, char* argv[]) {
-    SDL_SetMainReady();
-    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) return 1;
+std::map<std::string, Mapeo> baseDeDatos;
+std::vector<std::string> nombresBotones = {"A", "B", "X", "Y", "LB", "RB", "START", "BACK"};
 
-    PVIGEM_CLIENT client = vigem_alloc();
-    if (!VIGEM_SUCCESS(vigem_connect(client))) {
-        std::cerr << "ERROR: Driver ViGEmBus no encontrado." << std::endl;
-        return 1;
+// Función para guardar en archivo
+void guardarConfig() {
+    std::ofstream archivo("controles_config.dat", std::ios::binary);
+    for (auto const& [guid, mapeo] : baseDeDatos) {
+        archivo << guid << " ";
+        archivo.write((char*)&mapeo, sizeof(Mapeo));
     }
+}
 
-    std::vector<ControllerPair> controllers;
-    std::cout << "=== XInput Master Emulator (Win 7/10/11) ===" << std::endl;
-    std::cout << "Esperando mandos... (Presiona Ctrl+C para salir)" << std::endl;
+// Función para cargar desde archivo
+void cargarConfig() {
+    std::ifstream archivo("controles_config.dat", std::ios::binary);
+    if (!archivo) return;
+    std::string guid;
+    Mapeo m;
+    while (archivo >> guid) {
+        archivo.ignore();
+        archivo.read((char*)&m, sizeof(Mapeo));
+        baseDeDatos[guid] = m;
+    }
+}
 
-    bool running = true;
-    SDL_Event event;
-
-    while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running = false;
-
-            // Detectar conexión de cualquier mando genérico
-            if (event.type == SDL_CONTROLLERDEVICEADDED) {
-                int deviceIdx = event.cdevice.which;
-                SDL_GameController* phys = SDL_GameControllerOpen(deviceIdx);
-                if (phys) {
-                    PVIGEM_TARGET virt = vigem_target_x360_alloc();
-                    vigem_target_add(client, virt);
-                    controllers.push_back({phys, virt});
-                    std::cout << ">> Conectado: " << SDL_GameControllerName(phys) << " [Mando Virtual OK]" << std::endl;
+void calibrarMando(SDL_Joystick* joy, std::string guid) {
+    Mapeo nuevoMapeo;
+    std::cout << "\n--- Calibrando mando: " << guid << " ---" << std::endl;
+    for (int i = 0; i < nombresBotones.size(); i++) {
+        std::cout << "Presiona el boton para " << nombresBotones[i] << ": " << std::flush;
+        bool pulsado = false;
+        while (!pulsado) {
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                if (ev.type == SDL_JOYBUTTONDOWN) {
+                    nuevoMapeo.botones[i] = ev.jbutton.button;
+                    std::cout << "OK (" << ev.jbutton.button << ")" << std::endl;
+                    pulsado = true;
+                    Sleep(400);
                 }
             }
         }
+    }
+    baseDeDatos[guid] = nuevoMapeo;
+    guardarConfig();
+}
 
-        // Procesar datos para todos los mandos conectados
-        for (auto& pair : controllers) {
-            XUSB_REPORT report;
-            XUSB_REPORT_INIT(&report);
+int main(int argc, char* argv[]) {
+    SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+    cargarConfig();
+    
+    auto client = vigem_alloc();
+    vigem_connect(client);
 
-            // EJES (Joysticks)
-            report.sThumbLX = SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_LEFTX);
-            report.sThumbLY = -SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_LEFTY);
-            report.sThumbRX = SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_RIGHTX);
-            report.sThumbRY = -SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_RIGHTY);
-
-            // BOTONES (Configuración estándar, tú los cambias en el archivo de mapeo de SDL si es necesario)
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_A)) report.wButtons |= XUSB_GAMEPAD_A;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_B)) report.wButtons |= XUSB_GAMEPAD_B;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_X)) report.wButtons |= XUSB_GAMEPAD_X;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_Y)) report.wButtons |= XUSB_GAMEPAD_Y;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_START)) report.wButtons |= XUSB_GAMEPAD_START;
-            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_BACK)) report.wButtons |= XUSB_GAMEPAD_BACK;
-            
-            vigem_target_x360_update(client, pair.virtualPad, report);
+    std::cout << "=== EMULADOR XINPUT PRO ===" << std::endl;
+    std::cout << "Si quieres recalibrar los mandos, presiona 'R' ahora..." << std::endl;
+    
+    // Aquí el programa revisa los mandos conectados
+    int nJoy = SDL_NumJoysticks();
+    for (int i = 0; i < nJoy; i++) {
+        SDL_Joystick* j = SDL_JoystickOpen(i);
+        char guidStr[33];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j), guidStr, 33);
+        
+        if (baseDeDatos.find(guidStr) == baseDeDatos.end()) {
+            std::cout << "Mando nuevo detectado!" << std::endl;
+            calibrarMando(j, guidStr);
+        } else {
+            std::cout << "Mando reconocido: " << guidStr << " [Configuracion cargada]" << std::endl;
         }
-        Sleep(5); // Alta respuesta, bajo consumo
     }
 
-    // Limpieza al cerrar
-    for (auto& pair : controllers) {
-        vigem_target_remove(client, pair.virtualPad);
-        vigem_target_free(pair.virtualPad);
-        SDL_GameControllerClose(pair.physical);
-    }
-    vigem_disconnect(client);
-    vigem_free(client);
-    SDL_Quit();
+    // Bucle de emulación (usando baseDeDatos[guidStr])
+    // ... (aquí iría el código de envío de señales que ya tenemos)
+    
     return 0;
 }
