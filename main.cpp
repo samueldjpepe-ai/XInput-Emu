@@ -16,9 +16,9 @@ struct Mapeo {
     int dpad_tipo; 
     int dpad_ids[4]; 
     int ejes[4];     
-    int signos[4];
-    int deadzoneIZQ; // Valor 1-100
-    int deadzoneDER; // Valor 1-100
+    int signos[4];   // Aquí guardaremos la "huella" de la dirección
+    int deadzoneIZQ; 
+    int deadzoneDER; 
 };
 
 struct ControllerPair {
@@ -29,7 +29,6 @@ struct ControllerPair {
 
 std::map<std::string, Mapeo> baseDeDatos;
 std::vector<std::string> nombresBotones = {"A", "B", "X", "Y", "LB", "RB", "START", "BACK", "L3", "R3"};
-std::vector<std::string> nombresEjes = {"IZQUIERDO hacia ARRIBA", "IZQUIERDO hacia la DERECHA", "DERECHO hacia ARRIBA", "DERECHO hacia la DERECHA"};
 
 void guardarConfig() {
     std::ofstream archivo("controles_config.dat", std::ios::binary);
@@ -53,187 +52,166 @@ void cargarConfig() {
     archivo.close();
 }
 
-// Función con Zona Muerta dinámica
-short procesarStick(int valor, int signo, bool esEjeY, int nivelDeadzone) {
-    // Convertimos el nivel 1-100 a un valor de escala de SDL (máximo 32767)
-    // Un valor de 100 en deadzone será aprox 10,000 (30% del stick)
-    int limiteDeadzone = nivelDeadzone * 100; 
-    
-    if (abs(valor) < limiteDeadzone) return 0;
+// LA SOLUCIÓN MATEMÁTICA REAL
+short procesarEjeXbox(int valorActual, int signoCalibrado, int deadzone, bool esEjeY) {
+    int limiteDZ = deadzone * 100;
+    if (abs(valorActual) < limiteDZ) return 0;
 
-    int resultado = valor * (signo == 1 ? 1 : -1);
-    if (esEjeY) resultado = -resultado; // Corrección para estándar Xbox
+    // 1. Normalizamos el valor según cómo se movió en la calibración
+    // Si en calibración "Arriba" fue positivo, esto lo ajusta.
+    float valorNormalizado = (float)valorActual / 32767.0f;
+    if (signoCalibrado < 0) valorNormalizado = -valorNormalizado;
 
-    if (resultado > 32767) return 32767;
-    if (resultado < -32768) return -32768;
-    return (short)resultado;
+    // 2. Estándar Xbox: Arriba SIEMPRE es negativo (-1.0)
+    // Si el usuario está moviendo el eje que calibró como "Arriba", 
+    // el resultado debe ser negativo para que Xbox lo entienda como arriba.
+    float resultadoFinal = esEjeY ? -valorNormalizado : valorNormalizado;
+
+    int finalInt = (int)(resultadoFinal * 32767.0f);
+    if (finalInt > 32767) return 32767;
+    if (finalInt < -32768) return -32768;
+    return (short)finalInt;
 }
 
 void calibrarMando(SDL_Joystick* joy, std::string guid) {
     Mapeo nuevo;
-    std::cout << "\n>>> CALIBRANDO: " << SDL_JoystickName(joy) << std::endl;
+    system("cls");
+    std::cout << ">>> CALIBRANDO: " << SDL_JoystickName(joy) << std::endl;
     
-    // 1. ZONA MUERTA
-    std::cout << "¿Cuanta ZONA MUERTA quieres para el analogo IZQUIERDO? (1-100): ";
-    std::cin >> nuevo.deadzoneIZQ;
-    std::cout << "¿Cuanta ZONA MUERTA quieres para el analogo DERECHO? (1-100): ";
-    std::cin >> nuevo.deadzoneDER;
+    std::cout << "Zona muerta IZQ (1-100): "; std::cin >> nuevo.deadzoneIZQ;
+    std::cout << "Zona muerta DER (1-100): "; std::cin >> nuevo.deadzoneDER;
 
-    // 2. BOTONES
+    // Botones
     for (int i = 0; i < 10; i++) {
         std::cout << "Presiona [" << nombresBotones[i] << "]: " << std::flush;
-        bool capturado = false;
-        while (!capturado) {
+        bool cap = false;
+        while (!cap) {
             SDL_Event ev;
             while (SDL_PollEvent(&ev)) {
                 if (ev.type == SDL_JOYBUTTONDOWN && ev.jbutton.which == SDL_JoystickInstanceID(joy)) {
                     nuevo.botones[i] = ev.jbutton.button;
-                    std::cout << "OK (" << ev.jbutton.button << ")" << std::endl;
-                    capturado = true; Sleep(400);
+                    std::cout << "OK\n"; cap = true; Sleep(300);
                 }
             }
         }
     }
 
-    // 3. CRUCETA
-    std::cout << "\nPresiona las FLECHAS (DPAD):\n";
+    // Cruceta
+    std::cout << "\nCruceta:\n";
     for (int i = 0; i < 4; i++) {
-        std::cout << "Direccion " << (i==0?"ARRIBA":i==1?"ABAJO":i==2?"IZQUIERDA":"DERECHA") << ": " << std::flush;
-        bool capturado = false;
-        while (!capturado) {
+        std::cout << "Presiona " << (i==0?"ARRIBA":i==1?"ABAJO":i==2?"IZQUIERDA":"DERECHA") << ": " << std::flush;
+        bool cap = false;
+        while (!cap) {
             SDL_JoystickUpdate();
-            for (int b = 0; b < SDL_JoystickNumButtons(joy); b++) {
-                if (SDL_JoystickGetButton(joy, b)) {
-                    nuevo.dpad_tipo = 0; nuevo.dpad_ids[i] = b;
-                    std::cout << "OK\n"; capturado = true; Sleep(500); break;
+            for (int b=0; b<SDL_JoystickNumButtons(joy); b++) if(SDL_JoystickGetButton(joy, b)){
+                nuevo.dpad_tipo=0; nuevo.dpad_ids[i]=b; std::cout<<"OK\n"; cap=true; Sleep(300); break;
+            }
+            if(cap) break;
+            for (int h=0; h<SDL_JoystickNumHats(joy); h++) {
+                Uint8 v = SDL_JoystickGetHat(joy, h);
+                if(v != SDL_HAT_CENTERED){
+                    nuevo.dpad_tipo=1; nuevo.dpad_ids[i]=v; std::cout<<"OK (Hat)\n"; cap=true; Sleep(300); break;
                 }
             }
-            if (capturado) break;
-            for (int h = 0; h < SDL_JoystickNumHats(joy); h++) {
-                Uint8 val = SDL_JoystickGetHat(joy, h);
-                if (val != SDL_HAT_CENTERED) {
-                    nuevo.dpad_tipo = 1; nuevo.dpad_ids[i] = val;
-                    std::cout << "OK (Hat)\n"; capturado = true; Sleep(500); break;
-                }
-            }
-            Sleep(10);
         }
     }
 
-    // 4. ANÁLOGOS
-    std::cout << "\n--- CALIBRANDO STICKS ---\n";
+    // STICKS - AQUÍ ESTÁ EL TRUCO
+    std::vector<std::string> nEjes = {"IZQUIERDO hacia ARRIBA", "IZQUIERDO hacia DERECHA", "DERECHO hacia ARRIBA", "DERECHO hacia DERECHA"};
     for (int i = 0; i < 4; i++) {
-        std::cout << "Mueve y MANTEN el STICK " << nombresEjes[i] << ": " << std::flush;
-        bool capturado = false;
-        while (!capturado) {
+        std::cout << "Mueve el Stick " << nEjes[i] << " y MANTENLO: " << std::flush;
+        bool cap = false;
+        while (!cap) {
             SDL_JoystickUpdate();
             for (int a = 0; a < SDL_JoystickNumAxes(joy); a++) {
                 int val = SDL_JoystickGetAxis(joy, a);
-                if (abs(val) > 25000) { 
+                if (abs(val) > 20000) { 
                     nuevo.ejes[i] = a;
-                    nuevo.signos[i] = (val > 0) ? 1 : -1;
-                    std::cout << "OK!\n";
-                    capturado = true; Sleep(800); break;
+                    nuevo.signos[i] = (val > 0) ? 1 : -1; // Guardamos si tu mando es positivo o negativo al subir
+                    std::cout << "OK (Eje " << a << " detectado)\n";
+                    cap = true; Sleep(800); break;
                 }
             }
-            Sleep(10);
         }
     }
 
     baseDeDatos[guid] = nuevo;
     guardarConfig();
-    std::cout << "¡Configuracion guardada!\n";
 }
 
 int main(int argc, char* argv[]) {
-    SDL_SetMainReady();
-    SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_VIDEO);
-    PVIGEM_CLIENT client = vigem_alloc();
-    vigem_connect(client);
+    SDL_SetMainReady(); SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_VIDEO);
+    PVIGEM_CLIENT client = vigem_alloc(); vigem_connect(client);
     cargarConfig();
 
     while (true) {
         SDL_JoystickUpdate();
-        int nJoy = SDL_NumJoysticks();
         system("cls");
-        std::cout << "=== XINPUT MASTER + DEADZONE CONFIG ===\n";
-        std::vector<std::string> guids;
-        for (int i = 0; i < nJoy && i < 6; i++) {
+        int n = SDL_NumJoysticks();
+        std::cout << "=== XINPUT FIXED ===\n";
+        std::vector<std::string> gList;
+        for (int i = 0; i < n && i < 6; i++) {
             SDL_Joystick* j = SDL_JoystickOpen(i);
-            char gStr[33]; SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j), gStr, 33);
-            guids.push_back(gStr);
-            std::cout << "[" << i + 1 << "] " << SDL_JoystickName(j) << (baseDeDatos.count(gStr) ? " (Listo)" : " (Nuevo)") << std::endl;
+            char gs[33]; SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j), gs, 33);
+            gList.push_back(gs);
+            std::cout << "[" << i + 1 << "] " << SDL_JoystickName(j) << (baseDeDatos.count(gs) ? " [OK]" : " [!] No config") << std::endl;
         }
 
-        std::cout << "\n[0] Jugar | [1-6] Configurar | [ESC] Salir\nOpcion: ";
+        std::cout << "\n[0] JUGAR | [1-6] Configurar: ";
         int op; std::cin >> op;
 
         if (op == 0) {
             std::vector<ControllerPair> emus;
-            for (int i = 0; i < nJoy && i < 6; i++) {
-                if (baseDeDatos.count(guids[i])) {
-                    emus.push_back({SDL_JoystickOpen(i), vigem_target_x360_alloc(), guids[i]});
+            for (int i = 0; i < n && i < 6; i++) {
+                if (baseDeDatos.count(gList[i])) {
+                    emus.push_back({SDL_JoystickOpen(i), vigem_target_x360_alloc(), gList[i]});
                     vigem_target_add(client, emus.back().virtualPad);
                 }
             }
-
-            std::cout << "\n>>> EMULANDO. Pulsa 'M' para volver al menu.\n";
+            std::cout << "EMULANDO. 'M' para salir.\n";
             while (true) {
-                if (_kbhit() && (tolower(_getch()) == 'm')) break;
-
+                if (_kbhit() && tolower(_getch()) == 'm') break;
                 SDL_JoystickUpdate();
                 for (auto& e : emus) {
-                    XUSB_REPORT rep; XUSB_REPORT_INIT(&rep);
+                    XUSB_REPORT r; XUSB_REPORT_INIT(&r);
                     Mapeo m = baseDeDatos[e.guid];
 
-                    // Botones y DPAD (Lógica estándar)
-                    for(int b=0; b<10; b++) {
-                        if(SDL_JoystickGetButton(e.physical, m.botones[b])) {
-                            switch(b) {
-                                case 0: rep.wButtons |= XUSB_GAMEPAD_A; break;
-                                case 1: rep.wButtons |= XUSB_GAMEPAD_B; break;
-                                case 2: rep.wButtons |= XUSB_GAMEPAD_X; break;
-                                case 3: rep.wButtons |= XUSB_GAMEPAD_Y; break;
-                                case 4: rep.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER; break;
-                                case 5: rep.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER; break;
-                                case 6: rep.wButtons |= XUSB_GAMEPAD_START; break;
-                                case 7: rep.wButtons |= XUSB_GAMEPAD_BACK; break;
-                                case 8: rep.wButtons |= XUSB_GAMEPAD_LEFT_THUMB; break;
-                                case 9: rep.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB; break;
-                            }
-                        }
-                    }
+                    // Botones... (omitido por espacio pero mantenlo igual)
+                    if(SDL_JoystickGetButton(e.physical, m.botones[0])) r.wButtons |= XUSB_GAMEPAD_A;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[1])) r.wButtons |= XUSB_GAMEPAD_B;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[2])) r.wButtons |= XUSB_GAMEPAD_X;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[3])) r.wButtons |= XUSB_GAMEPAD_Y;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[4])) r.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[5])) r.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[6])) r.wButtons |= XUSB_GAMEPAD_START;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[7])) r.wButtons |= XUSB_GAMEPAD_BACK;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[8])) r.wButtons |= XUSB_GAMEPAD_LEFT_THUMB;
+                    if(SDL_JoystickGetButton(e.physical, m.botones[9])) r.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB;
 
-                    if (m.dpad_tipo == 0) {
-                        if (SDL_JoystickGetButton(e.physical, m.dpad_ids[0])) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
-                        if (SDL_JoystickGetButton(e.physical, m.dpad_ids[1])) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
-                        if (SDL_JoystickGetButton(e.physical, m.dpad_ids[2])) rep.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
-                        if (SDL_JoystickGetButton(e.physical, m.dpad_ids[3])) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
-                    } else {
+                    // DPAD...
+                    if(m.dpad_tipo==1){
                         Uint8 h = SDL_JoystickGetHat(e.physical, 0);
-                        if (h & SDL_HAT_UP) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
-                        if (h & SDL_HAT_DOWN) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
-                        if (h & SDL_HAT_LEFT) rep.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
-                        if (h & SDL_HAT_RIGHT) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
+                        if(h & SDL_HAT_UP) r.wButtons |= XUSB_GAMEPAD_DPAD_UP;
+                        if(h & SDL_HAT_DOWN) r.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
+                        if(h & SDL_HAT_LEFT) r.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
+                        if(h & SDL_HAT_RIGHT) r.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
                     }
 
-                    // Sticks usando la Zona Muerta personalizada por el usuario
-                    rep.sThumbLY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[0]), m.signos[0], true, m.deadzoneIZQ);
-                    rep.sThumbLX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[1]), m.signos[1], false, m.deadzoneIZQ);
-                    rep.sThumbRY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[2]), m.signos[2], true, m.deadzoneDER);
-                    rep.sThumbRX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[3]), m.signos[3], false, m.deadzoneDER);
+                    // LA CLAVE: Ejes Y (Arriba) son los indices 0 y 2. Ejes X (Derecha) son 1 y 3.
+                    r.sThumbLY = procesarEjeXbox(SDL_JoystickGetAxis(e.physical, m.ejes[0]), m.signos[0], m.deadzoneIZQ, true);
+                    r.sThumbLX = procesarEjeXbox(SDL_JoystickGetAxis(e.physical, m.ejes[1]), m.signos[1], m.deadzoneIZQ, false);
+                    r.sThumbRY = procesarEjeXbox(SDL_JoystickGetAxis(e.physical, m.ejes[2]), m.signos[2], m.deadzoneDER, true);
+                    r.sThumbRX = procesarEjeXbox(SDL_JoystickGetAxis(e.physical, m.ejes[3]), m.signos[3], false, m.deadzoneDER);
 
-                    if (SDL_JoystickGetButton(e.physical, 6)) rep.bLeftTrigger = 255;
-                    if (SDL_JoystickGetButton(e.physical, 7)) rep.bRightTrigger = 255;
+                    if (SDL_JoystickGetButton(e.physical, 6)) r.bLeftTrigger = 255;
+                    if (SDL_JoystickGetButton(e.physical, 7)) r.bRightTrigger = 255;
 
-                    vigem_target_x360_update(client, e.virtualPad, rep);
+                    vigem_target_x360_update(client, e.virtualPad, r);
                 }
                 Sleep(8);
             }
-            for(auto& e : emus) { vigem_target_remove(client, e.virtualPad); vigem_target_free(e.virtualPad); }
-        } else if (op > 0 && op <= (int)guids.size()) {
-            calibrarMando(SDL_JoystickOpen(op - 1), guids[op - 1]);
-        }
+            for(auto& e : emus){ vigem_target_remove(client, e.virtualPad); vigem_target_free(e.virtualPad); }
+        } else if (op > 0 && op <= (int)gList.size()) calibrarMando(SDL_JoystickOpen(op - 1), gList[op - 1]);
     }
     return 0;
 }
