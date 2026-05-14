@@ -1,8 +1,20 @@
 #include <windows.h>
 #include <iostream>
 #include <SDL.h>
+#include <cstring>
 #include "ViGEm/Client.h"
 #pragma comment(lib, "setupapi.lib")
+
+// Estructura para el reporte XUSB
+struct XUSB_REPORT {
+    USHORT wButtons;
+    SHORT sThumbLX;
+    SHORT sThumbLY;
+    SHORT sThumbRX;
+    SHORT sThumbRY;
+    BYTE bLeftTrigger;
+    BYTE bRightTrigger;
+};
 
 // Función para leer el archivo config.ini
 int GetConfigInt(const char* section, const char* key, int defaultValue) {
@@ -52,14 +64,14 @@ int main(int argc, char* argv[]) {
 
             // LEER CONFIGURACION DESDE CONFIG.INI
             // Mapeamos los botones físicos a los de Xbox
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "A", 0))) report.wButtons |= XUSB_GAMEPAD_A;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "B", 1))) report.wButtons |= XUSB_GAMEPAD_B;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "X", 2))) report.wButtons |= XUSB_GAMEPAD_X;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "Y", 3))) report.wButtons |= XUSB_GAMEPAD_Y;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "LB", 4))) report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "RB", 5))) report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "START", 6))) report.wButtons |= XUSB_GAMEPAD_START;
-            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "BACK", 7))) report.wButtons |= XUSB_GAMEPAD_BACK;
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "A", 0))) report.wButtons |= 0x1000; // XUSB_GAMEPAD_A
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "B", 1))) report.wButtons |= 0x2000; // XUSB_GAMEPAD_B
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "X", 2))) report.wButtons |= 0x4000; // XUSB_GAMEPAD_X
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "Y", 3))) report.wButtons |= 0x8000; // XUSB_GAMEPAD_Y
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "LB", 4))) report.wButtons |= 0x0100; // XUSB_GAMEPAD_LEFT_SHOULDER
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "RB", 5))) report.wButtons |= 0x0200; // XUSB_GAMEPAD_RIGHT_SHOULDER
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "START", 6))) report.wButtons |= 0x0010; // XUSB_GAMEPAD_START
+            if (SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)GetConfigInt("Buttons", "BACK", 7))) report.wButtons |= 0x0020; // XUSB_GAMEPAD_BACK
 
             // STICKS (Palancas)
             report.sThumbLX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);

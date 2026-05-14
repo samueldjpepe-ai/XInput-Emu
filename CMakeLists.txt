@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(SDL2 CONFIG REQUIRED)
 
 # 2. Configurar ViGEmClient desde el código fuente que descargamos
-set(VIGEM_SRC_DIR "${CMAKE_CURRENT_SOURCE_IDR}/external/ViGEmClient")
+set(VIGEM_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ViGEmClient")
 include_directories("${VIGEM_SRC_DIR}/include")
 
 # Añadimos los archivos necesarios de ViGEm directamente al proyecto
