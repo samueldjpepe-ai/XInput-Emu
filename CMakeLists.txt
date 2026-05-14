@@ -1,12 +1,13 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 project(XInputEmu)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# Buscar paquetes en el entorno de GitHub
-find_package(SDL2 REQUIRED)
-find_package(ViGEmClient REQUIRED)
+# Forzamos la búsqueda de paquetes instalados por vcpkg
+find_package(SDL2 CONFIG REQUIRED)
+find_package(ViGEmClient CONFIG REQUIRED)
 
 add_executable(XInputEmu main.cpp)
 
-target_link_libraries(XInputEmu SDL2::SDL2 ViGEmClient::ViGEmClient)
+# Usamos los nombres de objetivos específicos que vcpkg genera
+target_link_libraries(XInputEmu PRIVATE SDL2::SDL2 ViGEmClient::ViGEmClient)
