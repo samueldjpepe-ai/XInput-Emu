@@ -1,28 +1,33 @@
 #define SDL_MAIN_HANDLED
 #include <windows.h>
 #include <iostream>
+#include <vector>
+#include <fstream>
+#include <map>
 #include <SDL.h>
 #include "ViGEm/Client.h"
 
 #pragma comment(lib, "setupapi.lib")
 
+// Estructura para manejar cada mando conectado
+struct ControllerPair {
+    SDL_GameController* physical;
+    PVIGEM_TARGET virtualPad;
+};
+
 int main(int argc, char* argv[]) {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) return 1;
 
-    auto client = vigem_alloc();
+    PVIGEM_CLIENT client = vigem_alloc();
     if (!VIGEM_SUCCESS(vigem_connect(client))) {
-        std::cerr << "Error: Instala ViGEmBus" << std::endl;
+        std::cerr << "ERROR: Driver ViGEmBus no encontrado." << std::endl;
         return 1;
     }
 
-    auto pad = vigem_target_x360_alloc();
-    vigem_target_add(client, pad);
-
-    std::cout << "EMULADOR ACTIVO: Twin USB -> Xbox 360" << std::endl;
-
-    SDL_GameController* controller = nullptr;
-    XUSB_REPORT report;
+    std::vector<ControllerPair> controllers;
+    std::cout << "=== XInput Master Emulator (Win 7/10/11) ===" << std::endl;
+    std::cout << "Esperando mandos... (Presiona Ctrl+C para salir)" << std::endl;
 
     bool running = true;
     SDL_Event event;
@@ -30,43 +35,54 @@ int main(int argc, char* argv[]) {
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = false;
+
+            // Detectar conexión de cualquier mando genérico
             if (event.type == SDL_CONTROLLERDEVICEADDED) {
-                if (!controller) {
-                    controller = SDL_GameControllerOpen(event.cdevice.which);
-                    std::cout << "Mando conectado: " << SDL_GameControllerName(controller) << std::endl;
+                int deviceIdx = event.cdevice.which;
+                SDL_GameController* phys = SDL_GameControllerOpen(deviceIdx);
+                if (phys) {
+                    PVIGEM_TARGET virt = vigem_target_x360_alloc();
+                    vigem_target_add(client, virt);
+                    controllers.push_back({phys, virt});
+                    std::cout << ">> Conectado: " << SDL_GameControllerName(phys) << " [Mando Virtual OK]" << std::endl;
                 }
             }
         }
 
-        if (controller) {
+        // Procesar datos para todos los mandos conectados
+        for (auto& pair : controllers) {
+            XUSB_REPORT report;
             XUSB_REPORT_INIT(&report);
 
-            // Sticks (Palancas)
-            report.sThumbLX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
-            report.sThumbLY = -SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
-            report.sThumbRX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX);
-            report.sThumbRY = -SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY);
+            // EJES (Joysticks)
+            report.sThumbLX = SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_LEFTX);
+            report.sThumbLY = -SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_LEFTY);
+            report.sThumbRX = SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_RIGHTX);
+            report.sThumbRY = -SDL_GameControllerGetAxis(pair.physical, SDL_CONTROLLER_AXIS_RIGHTY);
 
-            // Botones principales
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A)) report.wButtons |= XUSB_GAMEPAD_A;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B)) report.wButtons |= XUSB_GAMEPAD_B;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_X)) report.wButtons |= XUSB_GAMEPAD_X;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_Y)) report.wButtons |= XUSB_GAMEPAD_Y;
+            // BOTONES (Configuración estándar, tú los cambias en el archivo de mapeo de SDL si es necesario)
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_A)) report.wButtons |= XUSB_GAMEPAD_A;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_B)) report.wButtons |= XUSB_GAMEPAD_B;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_X)) report.wButtons |= XUSB_GAMEPAD_X;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_Y)) report.wButtons |= XUSB_GAMEPAD_Y;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_START)) report.wButtons |= XUSB_GAMEPAD_START;
+            if (SDL_GameControllerGetButton(pair.physical, SDL_CONTROLLER_BUTTON_BACK)) report.wButtons |= XUSB_GAMEPAD_BACK;
             
-            // Gatillos y Flechas (DPAD)
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP)) report.wButtons |= XUSB_GAMEPAD_DPAD_UP;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) report.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
-            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
-
-            vigem_target_x360_update(client, pad, report);
+            vigem_target_x360_update(client, pair.virtualPad, report);
         }
-        Sleep(10);
+        Sleep(5); // Alta respuesta, bajo consumo
     }
 
-    vigem_target_remove(client, pad);
-    vigem_target_free(pad);
+    // Limpieza al cerrar
+    for (auto& pair : controllers) {
+        vigem_target_remove(client, pair.virtualPad);
+        vigem_target_free(pair.virtualPad);
+        SDL_GameControllerClose(pair.physical);
+    }
     vigem_disconnect(client);
+    vigem_free(client);
     SDL_Quit();
     return 0;
 }
