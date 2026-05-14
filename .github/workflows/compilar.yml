@@ -18,11 +18,18 @@ jobs:
 
       - name: Compilar Proyecto
         run: |
-          cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
           cmake --build build --config Release
 
-      - name: Entregar el EXE
+      - name: Preparar Carpeta de Entrega
+        run: |
+          mkdir output
+          copy build\Release\XInputEmu.exe output\
+          # Esto busca la DLL de SDL2 en la carpeta de vcpkg y la copia junto al EXE
+          copy C:\vcpkg\installed\x64-windows\bin\SDL2.dll output\
+
+      - name: Entregar el EXE y DLL
         uses: actions/upload-artifact@v4
         with:
-          name: Mi-Emulador-Final
-          path: build/Release/XInputEmu.exe
+          name: Emulador-Completo-V1
+          path: output/
