@@ -1,9 +1,7 @@
 #include <windows.h>
 #include <iostream>
-#include <string>
 #include <SDL.h>
-#include "ViGEm/Client.h" // Cambiado a comillas si está en la carpeta local
-// Vincular librerías de Windows
+#include "ViGEm/Client.h"
 #pragma comment(lib, "setupapi.lib")
 
 // Función para leer el archivo config.ini
