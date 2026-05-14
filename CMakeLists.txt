@@ -3,13 +3,18 @@ project(XInputEmu)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# Encontrar SDL2 vía vcpkg
+# 1. Encontrar SDL2 (esto ya funciona bien)
 find_package(SDL2 CONFIG REQUIRED)
 
-# Configurar ViGEmClient manualmente
-include_directories(${VIGEM_INCLUDE_DIR})
+# 2. Configurar ViGEmClient desde el código fuente que descargamos
+set(VIGEM_SRC_DIR "${CMAKE_CURRENT_SOURCE_IDR}/external/ViGEmClient")
+include_directories("${VIGEM_SRC_DIR}/include")
 
-add_executable(XInputEmu main.cpp)
+# Añadimos los archivos necesarios de ViGEm directamente al proyecto
+add_executable(XInputEmu 
+    main.cpp 
+    "${VIGEM_SRC_DIR}/src/ViGEmClient.cpp"
+)
 
-# Enlazar librerías
-target_link_libraries(XInputEmu PRIVATE SDL2::SDL2)
+# 3. Enlazar librerías y dependencias de Windows necesarias para ViGEm
+target_link_libraries(XInputEmu PRIVATE SDL2::SDL2 setupapi.lib)
