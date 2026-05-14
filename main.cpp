@@ -1,8 +1,8 @@
 #include <windows.h>
 #include <iostream>
 #include <string>
-#include <SDL2/SDL.h>        // Cambiado de <SDL.h> a <SDL2/SDL.h>
-#include <ViGEm/Client.h>
+#include <SDL.h>
+#include "ViGEm/Client.h" // Cambiado a comillas si está en la carpeta local
 // Vincular librerías de Windows
 #pragma comment(lib, "setupapi.lib")
 
