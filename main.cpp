@@ -5,7 +5,7 @@
 #include <fstream>
 #include <map>
 #include <string>
-#include <conio.h> // Necesario para _kbhit() y _getch()
+#include <conio.h>
 #include <SDL.h>
 #include "ViGEm/Client.h"
 
@@ -13,7 +13,7 @@
 
 struct Mapeo {
     int botones[10]; 
-    int dpad_tipo; // 0: botones, 1: HAT
+    int dpad_tipo; 
     int dpad_ids[4]; 
     int ejes[4];     
     int signos[4];   
@@ -51,10 +51,25 @@ void cargarConfig() {
     archivo.close();
 }
 
+// Función para procesar el stick con zona muerta e inversión
+short procesarStick(int valor, int signo, bool esEjeY) {
+    if (abs(valor) < 8000) return 0; // Zona muerta para evitar que se mueva solo
+
+    // Si es Eje Y (Arriba/Abajo), invertimos la polaridad para Xbox
+    float multiplicador = esEjeY ? -1.0f : 1.0f;
+    
+    int resultado = (int)(valor * (signo == 1 ? 1 : -1) * multiplicador);
+    
+    if (resultado > 32767) return 32767;
+    if (resultado < -32768) return -32768;
+    return (short)resultado;
+}
+
 void calibrarMando(SDL_Joystick* joy, std::string guid) {
     Mapeo nuevo;
     std::cout << "\n>>> CALIBRANDO: " << SDL_JoystickName(joy) << std::endl;
     
+    // 1. BOTONES
     for (int i = 0; i < 10; i++) {
         std::cout << "Presiona [" << nombresBotones[i] << "]: " << std::flush;
         bool capturado = false;
@@ -70,6 +85,7 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
         }
     }
 
+    // 2. CRUCETA (DPAD)
     std::cout << "\nPresiona las FLECHAS (DPAD):\n";
     for (int i = 0; i < 4; i++) {
         std::cout << "Presiona direccion " << (i==0?"ARRIBA":i==1?"ABAJO":i==2?"IZQUIERDA":"DERECHA") << ": " << std::flush;
@@ -79,7 +95,7 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
             for (int b = 0; b < SDL_JoystickNumButtons(joy); b++) {
                 if (SDL_JoystickGetButton(joy, b)) {
                     nuevo.dpad_tipo = 0; nuevo.dpad_ids[i] = b;
-                    std::cout << "OK (Boton)\n"; capturado = true; Sleep(500); break;
+                    std::cout << "OK\n"; capturado = true; Sleep(500); break;
                 }
             }
             if (capturado) break;
@@ -87,13 +103,14 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
                 Uint8 val = SDL_JoystickGetHat(joy, h);
                 if (val != SDL_HAT_CENTERED) {
                     nuevo.dpad_tipo = 1; nuevo.dpad_ids[i] = val;
-                    std::cout << "OK (POV Hat)\n"; capturado = true; Sleep(500); break;
+                    std::cout << "OK (Hat)\n"; capturado = true; Sleep(500); break;
                 }
             }
             Sleep(10);
         }
     }
 
+    // 3. ANÁLOGOS
     std::cout << "\n--- CALIBRANDO STICKS ---\n";
     for (int i = 0; i < 4; i++) {
         std::cout << "Mueve y MANTEN el " << nombresEjes[i] << ": " << std::flush;
@@ -115,7 +132,7 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
 
     baseDeDatos[guid] = nuevo;
     guardarConfig();
-    std::cout << "¡Configuracion guardada!\n";
+    std::cout << "¡Configuracion lista!\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -125,12 +142,10 @@ int main(int argc, char* argv[]) {
     vigem_connect(client);
     cargarConfig();
 
-    bool ejecutando = true;
-    while (ejecutando) {
+    while (true) {
         SDL_JoystickUpdate();
         int nJoy = SDL_NumJoysticks();
-        
-        system("cls"); // Limpiar pantalla
+        system("cls");
         std::cout << "=== XINPUT MASTER (MODO MENU) ===\n";
         std::vector<std::string> guids;
         for (int i = 0; i < nJoy && i < 6; i++) {
@@ -140,17 +155,10 @@ int main(int argc, char* argv[]) {
             std::cout << "[" << i + 1 << "] " << SDL_JoystickName(j) << (baseDeDatos.count(gStr) ? " (Listo)" : " (Nuevo)") << std::endl;
         }
 
-        std::cout << "\n[0] Iniciar JUEGO | [1-6] Configurar mando | [ESC] Salir: ";
-        
-        int op = -1;
-        if (_kbhit()) { // Si ya habia algo en el buffer
-            std::cin >> op;
-        } else {
-            std::cin >> op;
-        }
+        std::cout << "\n[0] Jugar | [1-6] Configurar | [M] Volver aqui desde el juego\nOpcion: ";
+        int op; std::cin >> op;
 
         if (op == 0) {
-            // ENTRAR AL MODO JUEGO
             std::vector<ControllerPair> emus;
             for (int i = 0; i < nJoy && i < 6; i++) {
                 if (baseDeDatos.count(guids[i])) {
@@ -159,60 +167,54 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            std::cout << "\n>>> JUEGO INICIADO <<<\n";
-            std::cout << "Presiona la tecla 'M' en tu teclado para volver al MENU DE CONFIGURACION.\n";
-
-            bool enJuego = true;
-            while (enJuego) {
-                // Revisar si el usuario quiere volver al menu
-                if (_kbhit()) {
-                    char c = _getch();
-                    if (c == 'm' || c == 'M') {
-                        enJuego = false; // Rompe el bucle de juego para volver al menu
-                        // Limpiar mandos virtuales antes de volver
-                        for(auto& e : emus) {
-                            vigem_target_remove(client, e.virtualPad);
-                            vigem_target_free(e.virtualPad);
-                        }
-                        break;
-                    }
-                }
+            std::cout << "\n>>> EMULANDO. Pulsa 'M' para volver al menu.\n";
+            while (true) {
+                if (_kbhit() && (tolower(_getch()) == 'm')) break;
 
                 SDL_JoystickUpdate();
                 for (auto& e : emus) {
                     XUSB_REPORT rep; XUSB_REPORT_INIT(&rep);
                     Mapeo m = baseDeDatos[e.guid];
 
-                    // --- Mapeo de Botones, DPAD y Sticks (Igual al anterior corregido) ---
-                    if (SDL_JoystickGetButton(e.physical, m.botones[0])) rep.wButtons |= XUSB_GAMEPAD_A;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[1])) rep.wButtons |= XUSB_GAMEPAD_B;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[2])) rep.wButtons |= XUSB_GAMEPAD_X;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[3])) rep.wButtons |= XUSB_GAMEPAD_Y;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[4])) rep.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[5])) rep.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[6])) rep.wButtons |= XUSB_GAMEPAD_START;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[7])) rep.wButtons |= XUSB_GAMEPAD_BACK;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[8])) rep.wButtons |= XUSB_GAMEPAD_LEFT_THUMB;
-                    if (SDL_JoystickGetButton(e.physical, m.botones[9])) rep.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB;
+                    // Botones
+                    for(int b=0; b<10; b++) {
+                        if(SDL_JoystickGetButton(e.physical, m.botones[b])) {
+                            switch(b) {
+                                case 0: rep.wButtons |= XUSB_GAMEPAD_A; break;
+                                case 1: rep.wButtons |= XUSB_GAMEPAD_B; break;
+                                case 2: rep.wButtons |= XUSB_GAMEPAD_X; break;
+                                case 3: rep.wButtons |= XUSB_GAMEPAD_Y; break;
+                                case 4: rep.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER; break;
+                                case 5: rep.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER; break;
+                                case 6: rep.wButtons |= XUSB_GAMEPAD_START; break;
+                                case 7: rep.wButtons |= XUSB_GAMEPAD_BACK; break;
+                                case 8: rep.wButtons |= XUSB_GAMEPAD_LEFT_THUMB; break;
+                                case 9: rep.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB; break;
+                            }
+                        }
+                    }
 
+                    // DPAD
                     if (m.dpad_tipo == 0) {
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[0])) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[1])) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[2])) rep.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[3])) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
                     } else {
-                        Uint8 val = SDL_JoystickGetHat(e.physical, 0);
-                        if (val & SDL_HAT_UP) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
-                        if (val & SDL_HAT_DOWN) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
-                        if (val & SDL_HAT_LEFT) rep.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
-                        if (val & SDL_HAT_RIGHT) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
+                        Uint8 h = SDL_JoystickGetHat(e.physical, 0);
+                        if (h & SDL_HAT_UP) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
+                        if (h & SDL_HAT_DOWN) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
+                        if (h & SDL_HAT_LEFT) rep.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
+                        if (h & SDL_HAT_RIGHT) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
                     }
 
-                    rep.sThumbLY = (short)(SDL_JoystickGetAxis(e.physical, m.ejes[0]) * (m.signos[0] == 1 ? -1 : 1));
-                    rep.sThumbLX = (short)(SDL_JoystickGetAxis(e.physical, m.ejes[1]) * (m.signos[1] == 1 ? 1 : -1));
-                    rep.sThumbRY = (short)(SDL_JoystickGetAxis(e.physical, m.ejes[2]) * (m.signos[2] == 1 ? -1 : 1));
-                    rep.sThumbRX = (short)(SDL_JoystickGetAxis(e.physical, m.ejes[3]) * (m.signos[3] == 1 ? 1 : -1));
+                    // Sticks Corregidos
+                    rep.sThumbLY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[0]), m.signos[0], true);
+                    rep.sThumbLX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[1]), m.signos[1], false);
+                    rep.sThumbRY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[2]), m.signos[2], true);
+                    rep.sThumbRX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[3]), m.signos[3], false);
 
+                    // Gatillos
                     if (SDL_JoystickGetButton(e.physical, 6)) rep.bLeftTrigger = 255;
                     if (SDL_JoystickGetButton(e.physical, 7)) rep.bRightTrigger = 255;
 
@@ -220,10 +222,9 @@ int main(int argc, char* argv[]) {
                 }
                 Sleep(8);
             }
+            for(auto& e : emus) { vigem_target_remove(client, e.virtualPad); vigem_target_free(e.virtualPad); }
         } else if (op > 0 && op <= (int)guids.size()) {
             calibrarMando(SDL_JoystickOpen(op - 1), guids[op - 1]);
-        } else if (op == 27) { // Tecla ESC en algunos sistemas o entrada directa
-            ejecutando = false;
         }
     }
     return 0;
