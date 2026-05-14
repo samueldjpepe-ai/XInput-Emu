@@ -1,16 +1,20 @@
+#define SDL_MAIN_HANDLED // <--- ESTO ES VITAL
 #include <windows.h>
 #include <iostream>
 #include <SDL.h>
 #include "ViGEm/Client.h"
 
-// Enlace manual para evitar errores de configuración
 #pragma comment(lib, "setupapi.lib")
 
 int main(int argc, char* argv[]) {
+    SDL_SetMainReady(); // <--- ESTO TAMBIÉN ES VITAL
+    
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) {
         std::cerr << "Error SDL: " << SDL_GetError() << std::endl;
         return 1;
     }
+    
+    // ... resto del código igual ...
 
     auto client = vigem_alloc();
     if (client == nullptr) {
