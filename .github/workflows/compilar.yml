@@ -4,18 +4,22 @@ on: [push]
 
 jobs:
   build:
-    runs-on: windows-2022 # Forzamos una versión estable de Windows
+    runs-on: windows-2022
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-    - name: Instalar Dependencias
+    - name: Instalar SDL2
+      run: vcpkg install sdl2:x64-windows
+
+    - name: Descargar ViGEmClient
       run: |
-        vcpkg install sdl2:x64-windows
-        vcpkg install vigemclient:x64-windows
+        git clone https://github.com/ViGEm/ViGEmClient.git external/ViGEmClient
 
     - name: Compilar Proyecto
       run: |
-        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVIGEM_INCLUDE_DIR=external/ViGEmClient/include
         cmake --build build --config Release
 
     - name: Entregar el EXE
