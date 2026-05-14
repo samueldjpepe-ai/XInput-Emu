@@ -3,11 +3,13 @@ project(XInputEmu)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# Forzamos la búsqueda de paquetes instalados por vcpkg
+# Encontrar SDL2 vía vcpkg
 find_package(SDL2 CONFIG REQUIRED)
-find_package(ViGEmClient CONFIG REQUIRED)
+
+# Configurar ViGEmClient manualmente
+include_directories(${VIGEM_INCLUDE_DIR})
 
 add_executable(XInputEmu main.cpp)
 
-# Usamos los nombres de objetivos específicos que vcpkg genera
-target_link_libraries(XInputEmu PRIVATE SDL2::SDL2 ViGEmClient::ViGEmClient)
+# Enlazar librerías
+target_link_libraries(XInputEmu PRIVATE SDL2::SDL2)
