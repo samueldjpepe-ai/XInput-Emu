@@ -1,29 +1,4 @@
-name: Generar EXE Portable
-
-on: [push]
-
-jobs:
-  build:
-    runs-on: windows-2022
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Instalar SDL2
-      run: vcpkg install sdl2:x64-windows
-
-    - name: Descargar ViGEmClient
+- name: Compilar Proyecto
       run: |
-        git clone https://github.com/ViGEm/ViGEmClient.git external/ViGEmClient
-
-    - name: Compilar Proyecto
-      run: |
-        cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVIGEM_INCLUDE_DIR=external/ViGEmClient/include
+        cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
         cmake --build build --config Release
-
-    - name: Entregar el EXE
-      uses: actions/upload-artifact@v4
-      with:
-        name: Emulador-Portable
-        path: build/Release/XInputEmu.exe
