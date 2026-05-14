@@ -1,0 +1,32 @@
+name: Build XInput-Emu
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        vcpkg install sdl2:x64-windows
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows
+    
+    - name: Build
+      run: |
+        cmake --build build --config Release
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: XInputEmu-Release
+        path: build/Release/XInputEmu.exe
