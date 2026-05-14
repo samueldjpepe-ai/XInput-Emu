@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022 # Forzamos una versión estable de Windows
     steps:
     - uses: actions/checkout@v4
 
