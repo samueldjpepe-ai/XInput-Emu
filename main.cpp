@@ -16,7 +16,9 @@ struct Mapeo {
     int dpad_tipo; 
     int dpad_ids[4]; 
     int ejes[4];     
-    int signos[4];   
+    int signos[4];
+    int deadzoneIZQ; // Valor 1-100
+    int deadzoneDER; // Valor 1-100
 };
 
 struct ControllerPair {
@@ -27,7 +29,7 @@ struct ControllerPair {
 
 std::map<std::string, Mapeo> baseDeDatos;
 std::vector<std::string> nombresBotones = {"A", "B", "X", "Y", "LB", "RB", "START", "BACK", "L3", "R3"};
-std::vector<std::string> nombresEjes = {"STICK IZQUIERDO hacia ARRIBA", "STICK IZQUIERDO hacia la DERECHA", "STICK DERECHO hacia ARRIBA", "STICK DERECHO hacia la DERECHA"};
+std::vector<std::string> nombresEjes = {"IZQUIERDO hacia ARRIBA", "IZQUIERDO hacia la DERECHA", "DERECHO hacia ARRIBA", "DERECHO hacia la DERECHA"};
 
 void guardarConfig() {
     std::ofstream archivo("controles_config.dat", std::ios::binary);
@@ -51,15 +53,17 @@ void cargarConfig() {
     archivo.close();
 }
 
-// Función para procesar el stick con zona muerta e inversión
-short procesarStick(int valor, int signo, bool esEjeY) {
-    if (abs(valor) < 8000) return 0; // Zona muerta para evitar que se mueva solo
+// Función con Zona Muerta dinámica
+short procesarStick(int valor, int signo, bool esEjeY, int nivelDeadzone) {
+    // Convertimos el nivel 1-100 a un valor de escala de SDL (máximo 32767)
+    // Un valor de 100 en deadzone será aprox 10,000 (30% del stick)
+    int limiteDeadzone = nivelDeadzone * 100; 
+    
+    if (abs(valor) < limiteDeadzone) return 0;
 
-    // Si es Eje Y (Arriba/Abajo), invertimos la polaridad para Xbox
-    float multiplicador = esEjeY ? -1.0f : 1.0f;
-    
-    int resultado = (int)(valor * (signo == 1 ? 1 : -1) * multiplicador);
-    
+    int resultado = valor * (signo == 1 ? 1 : -1);
+    if (esEjeY) resultado = -resultado; // Corrección para estándar Xbox
+
     if (resultado > 32767) return 32767;
     if (resultado < -32768) return -32768;
     return (short)resultado;
@@ -69,7 +73,13 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
     Mapeo nuevo;
     std::cout << "\n>>> CALIBRANDO: " << SDL_JoystickName(joy) << std::endl;
     
-    // 1. BOTONES
+    // 1. ZONA MUERTA
+    std::cout << "¿Cuanta ZONA MUERTA quieres para el analogo IZQUIERDO? (1-100): ";
+    std::cin >> nuevo.deadzoneIZQ;
+    std::cout << "¿Cuanta ZONA MUERTA quieres para el analogo DERECHO? (1-100): ";
+    std::cin >> nuevo.deadzoneDER;
+
+    // 2. BOTONES
     for (int i = 0; i < 10; i++) {
         std::cout << "Presiona [" << nombresBotones[i] << "]: " << std::flush;
         bool capturado = false;
@@ -85,10 +95,10 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
         }
     }
 
-    // 2. CRUCETA (DPAD)
+    // 3. CRUCETA
     std::cout << "\nPresiona las FLECHAS (DPAD):\n";
     for (int i = 0; i < 4; i++) {
-        std::cout << "Presiona direccion " << (i==0?"ARRIBA":i==1?"ABAJO":i==2?"IZQUIERDA":"DERECHA") << ": " << std::flush;
+        std::cout << "Direccion " << (i==0?"ARRIBA":i==1?"ABAJO":i==2?"IZQUIERDA":"DERECHA") << ": " << std::flush;
         bool capturado = false;
         while (!capturado) {
             SDL_JoystickUpdate();
@@ -110,10 +120,10 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
         }
     }
 
-    // 3. ANÁLOGOS
+    // 4. ANÁLOGOS
     std::cout << "\n--- CALIBRANDO STICKS ---\n";
     for (int i = 0; i < 4; i++) {
-        std::cout << "Mueve y MANTEN el " << nombresEjes[i] << ": " << std::flush;
+        std::cout << "Mueve y MANTEN el STICK " << nombresEjes[i] << ": " << std::flush;
         bool capturado = false;
         while (!capturado) {
             SDL_JoystickUpdate();
@@ -132,7 +142,7 @@ void calibrarMando(SDL_Joystick* joy, std::string guid) {
 
     baseDeDatos[guid] = nuevo;
     guardarConfig();
-    std::cout << "¡Configuracion lista!\n";
+    std::cout << "¡Configuracion guardada!\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -146,7 +156,7 @@ int main(int argc, char* argv[]) {
         SDL_JoystickUpdate();
         int nJoy = SDL_NumJoysticks();
         system("cls");
-        std::cout << "=== XINPUT MASTER (MODO MENU) ===\n";
+        std::cout << "=== XINPUT MASTER + DEADZONE CONFIG ===\n";
         std::vector<std::string> guids;
         for (int i = 0; i < nJoy && i < 6; i++) {
             SDL_Joystick* j = SDL_JoystickOpen(i);
@@ -155,7 +165,7 @@ int main(int argc, char* argv[]) {
             std::cout << "[" << i + 1 << "] " << SDL_JoystickName(j) << (baseDeDatos.count(gStr) ? " (Listo)" : " (Nuevo)") << std::endl;
         }
 
-        std::cout << "\n[0] Jugar | [1-6] Configurar | [M] Volver aqui desde el juego\nOpcion: ";
+        std::cout << "\n[0] Jugar | [1-6] Configurar | [ESC] Salir\nOpcion: ";
         int op; std::cin >> op;
 
         if (op == 0) {
@@ -176,7 +186,7 @@ int main(int argc, char* argv[]) {
                     XUSB_REPORT rep; XUSB_REPORT_INIT(&rep);
                     Mapeo m = baseDeDatos[e.guid];
 
-                    // Botones
+                    // Botones y DPAD (Lógica estándar)
                     for(int b=0; b<10; b++) {
                         if(SDL_JoystickGetButton(e.physical, m.botones[b])) {
                             switch(b) {
@@ -194,7 +204,6 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
-                    // DPAD
                     if (m.dpad_tipo == 0) {
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[0])) rep.wButtons |= XUSB_GAMEPAD_DPAD_UP;
                         if (SDL_JoystickGetButton(e.physical, m.dpad_ids[1])) rep.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
@@ -208,13 +217,12 @@ int main(int argc, char* argv[]) {
                         if (h & SDL_HAT_RIGHT) rep.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
                     }
 
-                    // Sticks Corregidos
-                    rep.sThumbLY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[0]), m.signos[0], true);
-                    rep.sThumbLX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[1]), m.signos[1], false);
-                    rep.sThumbRY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[2]), m.signos[2], true);
-                    rep.sThumbRX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[3]), m.signos[3], false);
+                    // Sticks usando la Zona Muerta personalizada por el usuario
+                    rep.sThumbLY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[0]), m.signos[0], true, m.deadzoneIZQ);
+                    rep.sThumbLX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[1]), m.signos[1], false, m.deadzoneIZQ);
+                    rep.sThumbRY = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[2]), m.signos[2], true, m.deadzoneDER);
+                    rep.sThumbRX = procesarStick(SDL_JoystickGetAxis(e.physical, m.ejes[3]), m.signos[3], false, m.deadzoneDER);
 
-                    // Gatillos
                     if (SDL_JoystickGetButton(e.physical, 6)) rep.bLeftTrigger = 255;
                     if (SDL_JoystickGetButton(e.physical, 7)) rep.bRightTrigger = 255;
 
