@@ -2,18 +2,19 @@
 #include <iostream>
 #include <SDL.h>
 #include <cstring>
-#include "ViGEm/Client.h"
-#pragma comment(lib, "setupapi.lib")
 
-// Estructura para el reporte XUSB
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "winmm.lib")
+
+// Estructura para el reporte XUSB (Xbox 360 controller)
 struct XUSB_REPORT {
     USHORT wButtons;
+    BYTE bLeftTrigger;
+    BYTE bRightTrigger;
     SHORT sThumbLX;
     SHORT sThumbLY;
     SHORT sThumbRX;
     SHORT sThumbRY;
-    BYTE bLeftTrigger;
-    BYTE bRightTrigger;
 };
 
 // Función para leer el archivo config.ini
@@ -28,20 +29,10 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // 2. Conectar al Bus de ViGEm (Mando Virtual)
-    auto client = vigem_alloc();
-    if (!VIGEM_SUCCESS(vigem_connect(client))) {
-        std::cout << "Error: ViGEmBus no encontrado. Instala el driver." << std::endl;
-        return -1;
-    }
-
-    auto xbox = vigem_target_x360_alloc();
-    vigem_target_add(client, xbox);
-
     std::cout << "========================================" << std::endl;
     std::cout << "   XINPUT EMULATOR PORTABLE (ACTIVO)    " << std::endl;
     std::cout << "========================================" << std::endl;
-    std::cout << "Ocultando mando fisico y emulando Xbox 360..." << std::endl;
+    std::cout << "Esperando conexión de mando..." << std::endl;
 
     SDL_GameController* controller = nullptr;
     XUSB_REPORT report;
@@ -51,11 +42,19 @@ int main(int argc, char* argv[]) {
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running = false;
+            if (event.type == SDL_QUIT) {
+                running = false;
+            }
 
             if (event.type == SDL_CONTROLLERDEVICEADDED && !controller) {
                 controller = SDL_GameControllerOpen(event.cdevice.which);
                 std::cout << "-> Mando conectado: " << SDL_GameControllerName(controller) << std::endl;
+            }
+
+            if (event.type == SDL_CONTROLLERDEVICEREMOVED && controller) {
+                SDL_GameControllerClose(controller);
+                controller = nullptr;
+                std::cout << "-> Mando desconectado" << std::endl;
             }
         }
 
@@ -82,19 +81,15 @@ int main(int argc, char* argv[]) {
             // GATILLOS
             report.bLeftTrigger = (BYTE)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >> 8);
             report.bRightTrigger = (BYTE)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >> 8);
-
-            // Enviar datos al mando virtual
-            vigem_target_x360_update(client, xbox, report);
         }
 
-        Sleep(1); // Latencia ultra baja
+        SDL_Delay(1); // Latencia ultra baja
     }
 
     // Limpieza al cerrar
-    vigem_target_remove(client, xbox);
-    vigem_target_free(xbox);
-    vigem_disconnect(client);
-    vigem_free(client);
+    if (controller) {
+        SDL_GameControllerClose(controller);
+    }
     SDL_Quit();
 
     return 0;
