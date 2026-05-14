@@ -1,0 +1,25 @@
+name: Generar EXE Portable
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Instalar Dependencias
+      run: |
+        vcpkg install sdl2:x64-windows
+        vcpkg install vigemclient:x64-windows
+
+    - name: Compilar Proyecto
+      run: |
+        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake --build build --config Release
+
+    - name: Entregar el EXE
+      uses: actions/upload-artifact@v3
+      with:
+        name: Emulador-Portable
+        path: build/Release/XInputEmu.exe
